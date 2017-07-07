@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule
+  xmlns="http://www.mulesoft.org/schema/mule/core"
+  xmlns:db="http://www.mulesoft.org/schema/mule/db"
+  xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+  xmlns:http="http://www.mulesoft.org/schema/mule/http"
+  xmlns:json="http://www.mulesoft.org/schema/mule/json"
+  xmlns:spring="http://www.springframework.org/schema/beans"
+  xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+
+  <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8085" basePath="4apppot" doc:name="HTTP Listener Configuration"/>
+  <db:generic-config doc:name="Generic Database Configuration"
+    driverClassName="com.mysql.jdbc.Driver"
+    name="DB_Configuration"
+    url="jdbc:mysql://localhost:3306/{DATABASE_NAME}?user={DB_USER}&amp;password={PASSWORD}"/>
+
+  <!-- FreeQueryFlow -->
+  <flow name="FreeQueryFlow">
+    <http:listener config-ref="HTTP_Listener_Configuration" path="/query/*" doc:name="Recieve HTTP request" allowedMethods="GET">
+      <http:response-builder reasonPhrase="#[flowVars['reason']]" statusCode="#[flowVars['statusCode']]"/>
+    </http:listener>
+
+    <set-variable variableName="VarTableName"
+                  value="#[message.inboundProperties['http.request.path']]"
+                  doc:name="Variable"/>
+    <set-variable variableName="VarTableName"
+                  value="#[flowVars['VarTableName'].substring(flowVars['VarTableName'].lastIndexOf('/') + 1)]"
+                  doc:name="Variable"/>
+    <set-variable variableName="VarQuery" value="#[message.inboundProperties.'http.query.params'.query]" doc:name="Variable"/>
+    <logger level="INFO" doc:name="Log TABLE NAME" message="#[VarTableName]" />
+
+    <!-- Queryの取得 -->
+    <logger level="INFO" doc:name="Log TABLE NAME" message="Payload #[payload]" />
+    <logger level="INFO" doc:name="Log TABLE NAME" message="Query #[VarQuery]" />
+
+    <db:select config-ref="DB_Configuration" doc:name="Perform a query in Database">
+      <db:dynamic-query><![CDATA[#[VarQuery]]>]</db:dynamic-query>
+    </db:select>
+    <json:object-to-json-transformer doc:name="Convert Object to JSON"/>
+        <response>
+            <message-properties-transformer doc:name="Message Properties">
+                <add-message-property key="Content-Type" value="application/json"/>
+            </message-properties-transformer>
+        </response>
+
+    <choice-exception-strategy doc:name="Choice Exception Strategy">
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.domain.connection.ConnectionCreationException)]">
+          <logger level="INFO" doc:name="Log Request" message="HELLO" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="500" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Internal Server Error" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.resolver.query.QueryResolutionException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLSyntaxErrorException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLIntegrityConstraintViolationException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+    </choice-exception-strategy>
+  </flow>
+
+  <!-- GET -->
+  <flow name="GetFlow">
+    <http:listener config-ref="HTTP_Listener_Configuration" path="/*" doc:name="Recieve HTTP request" allowedMethods="GET">
+      <http:response-builder reasonPhrase="#[flowVars['reason']]" statusCode="#[flowVars['statusCode']]"/>
+    </http:listener>
+
+    <set-variable variableName="VarTableName"
+                  value="#[message.inboundProperties['http.request.path']]"
+                  doc:name="Variable"/>
+    <set-variable variableName="VarTableName"
+                  value="#[flowVars['VarTableName'].substring(flowVars['VarTableName'].lastIndexOf('/') + 1)]"
+                  doc:name="Variable"/>
+    <set-variable variableName="VarQuery" value="" doc:name="Variable"/>
+
+    <!-- Query Parameter分ループする -->
+    <foreach collection="#[message.inboundProperties.'http.query.params'.entrySet()]" doc:name="For Each">
+
+      <choice doc:name="Choice">
+        <when expression="#[counter == 1]">
+          <set-variable variableName="VarQuery" value="WHERE #[payload.key] = '#[payload.value]'" doc:name="Variable"/>
+        </when>
+        <otherwise>
+          <set-variable variableName="VarQuery" value="#[VarQuery] AND #[payload.key] = '#[payload.value]'" doc:name="Variable"/>
+        </otherwise>
+      </choice>
+
+      <!-- payload変数にQuery Parameterの１つ分が入っている -->
+      <logger doc:name="Log the payload" level="INFO" message="payload: #[payload]"/>
+      <logger doc:name="Log the payload" level="INFO" message="payload.key: #[payload.key]"/>
+      <logger doc:name="Log the payload" level="INFO" message="payload.value: #[payload.value]"/>
+    </foreach>
+
+    <logger level="INFO" doc:name="Log TABLE NAME" message="#[VarTableName]" />
+
+    <db:select config-ref="DB_Configuration" doc:name="Perform a query in Database">
+      <db:dynamic-query><![CDATA[select * from #[VarTableName]
+        #[VarQuery]]>]</db:dynamic-query>
+    </db:select>
+    <json:object-to-json-transformer doc:name="Convert Object to JSON"/>
+        <response>
+            <message-properties-transformer doc:name="Message Properties">
+                <add-message-property key="Content-Type" value="application/json"/>
+            </message-properties-transformer>
+        </response>
+
+    <choice-exception-strategy doc:name="Choice Exception Strategy">
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.domain.connection.ConnectionCreationException)]">
+          <logger level="INFO" doc:name="Log Request" message="HELLO" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <!--<set-property propertyName="http.status" value="500" doc:name="Set status code"/>
+          <set-property propertyName="http.reason" value="Internal Server Error" doc:name="Set reason phrase"/>-->
+          <set-variable variableName="statusCode" value="500" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Internal Server Error" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.resolver.query.QueryResolutionException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLSyntaxErrorException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLIntegrityConstraintViolationException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+    </choice-exception-strategy>
+  </flow>
+
+  <!-- POST -->
+  <flow name="PostFlow" >
+    <http:listener config-ref="HTTP_Listener_Configuration" path="/*" doc:name="Recieve HTTP request" allowedMethods="POST">
+      <http:response-builder reasonPhrase="#[flowVars['reason']]" statusCode="#[flowVars['statusCode']]"/>
+    </http:listener>
+
+    <!-- Table Name -->
+    <set-variable variableName="VarTableName"
+                  value="#[message.inboundProperties['http.request.path']]"
+                  doc:name="Variable"/>
+    <set-variable variableName="VarTableName"
+                  value="#[flowVars['VarTableName'].substring(flowVars['VarTableName'].lastIndexOf('/') + 1)]"
+                  doc:name="Variable"/>
+    <logger doc:name="Log the payload" level="INFO" message="TABLE NAME: #[VarTableName]"/>
+
+    <json:json-to-object-transformer returnClass="java.util.ArrayList" doc:name="JSON to Object"/>
+
+
+    <!-- JSONの要素分ループする -->
+    <foreach collection="#[message.payload]" doc:name="For Each">
+
+      <logger doc:name="Log the payload" level="INFO" message="payload(#[counter]): #[payload]"/>
+
+      <set-variable variableName="VarInsertColumns" value="" doc:name="Variable"/>
+      <set-variable variableName="VarInsertValues" value="" doc:name="Variable"/>
+
+      <!-- 要素のKEY、Value分ループする -->
+      <foreach collection="#[payload.entrySet()]" doc:name="For Each">
+        <logger doc:name="Log the payload" level="INFO" message="payload.entrySet(#[counter]): #[payload]"/>
+        <choice doc:name="Choice">
+          <when expression="#[counter == 1]">
+            <set-variable variableName="VarInsertColumns" value="#[payload.getKey()]" doc:name="Variable"/>
+            <set-variable variableName="VarInsertValues" value="'#[payload.getValue()]'" doc:name="Variable"/>
+          </when>
+          <otherwise>
+            <set-variable variableName="VarInsertColumns" value="#[flowVars.VarInsertColumns], #[payload.getKey()]" doc:name="Variable"/>
+            <set-variable variableName="VarInsertValues" value="#[flowVars.VarInsertValues], '#[payload.getValue()]'" doc:name="Variable"/>
+          </otherwise>
+        </choice>
+      </foreach>
+
+      <logger doc:name="Log the payload" level="INFO" message="payload(#[counter]): #[VarInsertColumns]"/>
+      <logger doc:name="Log the payload" level="INFO" message="payload(#[counter]): #[VarInsertValues]"/>
+      <logger doc:name="Log the payload" level="INFO" message="SQL(#[counter]):INSERT INTO #[VarTableName] (#[VarInsertColumns]) VALUES (#[VarInsertValues])"/>
+
+      <db:insert config-ref="DB_Configuration" doc:name="Database">
+        <db:dynamic-query><![CDATA[INSERT INTO #[VarTableName] (#[VarInsertColumns]) VALUES (#[VarInsertValues])]]></db:dynamic-query>
+      </db:insert>
+
+    </foreach>
+    <json:object-to-json-transformer doc:name="Convert Object to JSON"/>
+        <response>
+            <message-properties-transformer doc:name="Message Properties">
+                <add-message-property key="Content-Type" value="application/json"/>
+            </message-properties-transformer>
+        </response>
+
+    <choice-exception-strategy doc:name="Choice Exception Strategy">
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.domain.connection.ConnectionCreationException)]">
+          <logger level="INFO" doc:name="Log Request" message="HELLO" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="500" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Internal Server Error" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.resolver.query.QueryResolutionException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLSyntaxErrorException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLIntegrityConstraintViolationException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+    </choice-exception-strategy>
+  </flow>
+
+  <!-- PUT -->
+  <flow name="PutFlow" >
+    <http:listener config-ref="HTTP_Listener_Configuration" path="/*" doc:name="Recieve HTTP request" allowedMethods="PUT">
+      <http:response-builder reasonPhrase="#[flowVars['reason']]" statusCode="#[flowVars['statusCode']]"/>
+    </http:listener>
+
+    <!-- Table Name -->
+    <set-variable variableName="VarTableName"
+                  value="#[message.inboundProperties['http.request.path']]"
+                  doc:name="Variable"/>
+    <set-variable variableName="VarTableName"
+                  value="#[flowVars['VarTableName'].substring(flowVars['VarTableName'].lastIndexOf('/') + 1)]"
+                  doc:name="Variable"/>
+    <logger doc:name="Log the payload" level="INFO" message="TABLE NAME: #[VarTableName]"/>
+
+    <json:json-to-object-transformer returnClass="java.util.ArrayList" doc:name="JSON to Object"/>
+
+    <set-variable variableName="VarQuery" value="" doc:name="Variable"/>
+
+    <!-- Query Parameter分ループする -->
+    <foreach collection="#[message.inboundProperties.'http.query.params'.entrySet()]" doc:name="For Each">
+
+      <choice doc:name="Choice">
+        <when expression="#[counter == 1]">
+          <set-variable variableName="VarQuery" value="WHERE #[payload.key] = '#[payload.value]'" doc:name="Variable"/>
+        </when>
+        <otherwise>
+          <set-variable variableName="VarQuery" value="#[VarQuery] AND #[payload.key] = '#[payload.value]'" doc:name="Variable"/>
+        </otherwise>
+      </choice>
+    </foreach>
+
+    <logger doc:name="Log the payload" level="INFO" message="VarQuery: #[VarQuery]"/>
+
+    <!-- JSONの要素分ループする -->
+    <foreach collection="#[message.payload]" doc:name="For Each">
+
+      <logger doc:name="Log the payload" level="INFO" message="message.payload(#[counter]): #[payload]"/>
+
+      <set-variable variableName="VarUpdateColumns" value="" doc:name="Variable"/>
+
+      <!-- 要素のKEY、Value分ループする -->
+      <foreach collection="#[payload.entrySet()]" doc:name="For Each">
+        <logger doc:name="Log the payload" level="INFO" message="payload.entrySet(#[counter]): #[payload]"/>
+        <choice doc:name="Choice">
+          <when expression="#[counter == 1]">
+            <set-variable variableName="VarUpdateColumns" value="#[payload.getKey()]='#[payload.getValue()]'" doc:name="Variable"/>
+          </when>
+          <otherwise>
+            <set-variable variableName="VarUpdateColumns" value="#[VarUpdateColumns], #[payload.getKey()]='#[payload.getValue()]'" doc:name="Variable"/>
+          </otherwise>
+        </choice>
+      </foreach>
+
+      <logger doc:name="Log the payload" level="INFO" message="VarUpdateColumns(#[counter]): #[VarUpdateColumns]"/>
+
+      <db:update config-ref="DB_Configuration" doc:name="Database">
+        <db:dynamic-query><![CDATA[UPDATE #[VarTableName] SET
+                          #[VarUpdateColumns]
+                          #[VarQuery]]]></db:dynamic-query>
+      </db:update>
+
+    </foreach>
+    <json:object-to-json-transformer doc:name="Convert Object to JSON"/>
+        <response>
+            <message-properties-transformer doc:name="Message Properties">
+                <add-message-property key="Content-Type" value="application/json"/>
+            </message-properties-transformer>
+        </response>
+
+    <choice-exception-strategy doc:name="Choice Exception Strategy">
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.domain.connection.ConnectionCreationException)]">
+          <logger level="INFO" doc:name="Log Request" message="HELLO" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="500" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Internal Server Error" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.resolver.query.QueryResolutionException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLSyntaxErrorException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLIntegrityConstraintViolationException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+    </choice-exception-strategy>
+  </flow>
+
+  <!-- DELETE -->
+  <flow name="DeleteFlow">
+    <http:listener config-ref="HTTP_Listener_Configuration" path="/*" doc:name="Recieve HTTP request" allowedMethods="DELETE">
+      <http:response-builder reasonPhrase="#[flowVars['reason']]" statusCode="#[flowVars['statusCode']]"/>
+    </http:listener>
+
+    <set-variable variableName="VarTableName"
+                  value="#[message.inboundProperties['http.request.path']]"
+                  doc:name="Variable"/>
+    <set-variable variableName="VarTableName"
+                  value="#[flowVars['VarTableName'].substring(flowVars['VarTableName'].lastIndexOf('/') + 1)]"
+                  doc:name="Variable"/>
+    <set-variable variableName="VarQuery" value="" doc:name="Variable"/>
+
+    <!-- Query Parameter分ループする -->
+    <foreach collection="#[message.inboundProperties.'http.query.params'.entrySet()]" doc:name="For Each">
+
+      <choice doc:name="Choice">
+        <when expression="#[counter == 1]">
+          <set-variable variableName="VarQuery" value="WHERE #[payload.key] = '#[payload.value]'" doc:name="Variable"/>
+        </when>
+        <otherwise>
+          <set-variable variableName="VarQuery" value="#[VarQuery] AND #[payload.key] = '#[payload.value]'" doc:name="Variable"/>
+        </otherwise>
+      </choice>
+
+      <!-- payload変数にQuery Parameterの１つ分が入っている -->
+      <logger doc:name="Log the payload" level="INFO" message="payload: #[payload]"/>
+      <logger doc:name="Log the payload" level="INFO" message="payload.key: #[payload.key]"/>
+      <logger doc:name="Log the payload" level="INFO" message="payload.value: #[payload.value]"/>
+    </foreach>
+
+    <logger level="INFO" doc:name="Log TABLE NAME" message="#[VarTableName]" />
+
+    <db:delete config-ref="DB_Configuration" doc:name="Perform a query in Database">
+      <db:dynamic-query><![CDATA[delete from #[VarTableName]
+        #[VarQuery]]>]</db:dynamic-query>
+    </db:delete>
+    <json:object-to-json-transformer doc:name="Convert Object to JSON"/>
+        <response>
+            <message-properties-transformer doc:name="Message Properties">
+                <add-message-property key="Content-Type" value="application/json"/>
+            </message-properties-transformer>
+        </response>
+    
+    <choice-exception-strategy doc:name="Choice Exception Strategy">
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.domain.connection.ConnectionCreationException)]">
+          <logger level="INFO" doc:name="Log Request" message="HELLO" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="500" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Internal Server Error" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(org.mule.module.db.internal.resolver.query.QueryResolutionException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLSyntaxErrorException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+      <catch-exception-strategy doc:name="Catch Exception Strategy"
+          when="#[exception.causedBy(java.sql.SQLIntegrityConstraintViolationException)]">
+          <logger level="INFO" doc:name="Log Request" message="Bad Request" />
+          <logger level="INFO" doc:name="Log Request" message="Error processing #[flowVars['originalRequest']]" />
+          <set-variable variableName="statusCode" value="400" doc:name="Set status code"/>
+          <set-variable variableName="reason" value="Bad Request" doc:name="Set reason phrase"/>
+      </catch-exception-strategy>
+    </choice-exception-strategy>
+  </flow>
+</mule>
