@@ -17,8 +17,8 @@ http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/m
 
   <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8085" basePath="4apppot" doc:name="HTTP Listener Configuration"/>
   <db:generic-config doc:name="Generic Database Configuration"
-    driverClassName="com.mysql.jdbc.Driver"
-    name="DB_Configuration"
+    driverClassName="com.mysql.jdbc.Driver" 
+    name="DB_Configuration" 
     url="jdbc:mysql://localhost:3306/{DATABASE_NAME}?user={DB_USER}&amp;password={PASSWORD}"/>
 
   <!-- FreeQueryFlow -->
@@ -87,6 +87,8 @@ http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/m
     <http:listener config-ref="HTTP_Listener_Configuration" path="/*" doc:name="Recieve HTTP request" allowedMethods="GET">
       <http:response-builder reasonPhrase="#[flowVars['reason']]" statusCode="#[flowVars['statusCode']]"/>
     </http:listener>
+
+      <logger doc:name="Log the payload" level="INFO" message="GET is called."/>
 
     <set-variable variableName="VarTableName"
                   value="#[message.inboundProperties['http.request.path']]"
@@ -190,14 +192,28 @@ http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/m
       <!-- 要素のKEY、Value分ループする -->
       <foreach collection="#[payload.entrySet()]" doc:name="For Each">
         <logger doc:name="Log the payload" level="INFO" message="payload.entrySet(#[counter]): #[payload]"/>
+
+        <set-variable variableName="VarInsertValue" value="'#[payload.getValue()]'" doc:name="Variable"/>
+        <!-- '${}'で囲まれた値は特殊扱いして、そのまま引用符を付けずに渡す -->
+        <choice doc:name="Choice">
+          <when expression="#[VarInsertValue.startsWith('\'${') &amp;&amp; VarInsertValue.endsWith('}\'')]">
+            <logger doc:name="Log the payload" level="INFO"  message="checked value #[VarInsertValue]"/>
+            <set-variable variableName="VarInsertValue" value="#[VarInsertValue.substring('\'${'.length(), VarInsertValue.length() - '}\''.length())]" doc:name="Variable"/>
+            <logger doc:name="Log the payload" level="INFO" message="checked value #[VarInsertValue]. #[VarInsertValue] is special value."/>
+          </when>
+          <otherwise>
+            <logger doc:name="Log the payload" level="INFO" message="checked value #[VarInsertValue]."/>
+          </otherwise>
+        </choice>
+        
         <choice doc:name="Choice">
           <when expression="#[counter == 1]">
             <set-variable variableName="VarInsertColumns" value="#[payload.getKey()]" doc:name="Variable"/>
-            <set-variable variableName="VarInsertValues" value="'#[payload.getValue()]'" doc:name="Variable"/>
+            <set-variable variableName="VarInsertValues" value="#[VarInsertValue]" doc:name="Variable"/>
           </when>
           <otherwise>
             <set-variable variableName="VarInsertColumns" value="#[flowVars.VarInsertColumns], #[payload.getKey()]" doc:name="Variable"/>
-            <set-variable variableName="VarInsertValues" value="#[flowVars.VarInsertValues], '#[payload.getValue()]'" doc:name="Variable"/>
+            <set-variable variableName="VarInsertValues" value="#[flowVars.VarInsertValues], #[VarInsertValue]" doc:name="Variable"/>
           </otherwise>
         </choice>
       </foreach>
@@ -271,7 +287,7 @@ http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/m
 
     <!-- Query Parameter分ループする -->
     <foreach collection="#[message.inboundProperties.'http.query.params'.entrySet()]" doc:name="For Each">
-
+      
       <choice doc:name="Choice">
         <when expression="#[counter == 1]">
           <set-variable variableName="VarQuery" value="WHERE #[payload.key] = '#[payload.value]'" doc:name="Variable"/>
@@ -294,12 +310,26 @@ http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/m
       <!-- 要素のKEY、Value分ループする -->
       <foreach collection="#[payload.entrySet()]" doc:name="For Each">
         <logger doc:name="Log the payload" level="INFO" message="payload.entrySet(#[counter]): #[payload]"/>
+
+        <set-variable variableName="VarValue" value="'#[payload.getValue()]'" doc:name="Variable"/>
+        <!-- '${}'で囲まれた値は特殊扱いして、そのまま引用符を付けずに渡す -->
         <choice doc:name="Choice">
-          <when expression="#[counter == 1]">
-            <set-variable variableName="VarUpdateColumns" value="#[payload.getKey()]='#[payload.getValue()]'" doc:name="Variable"/>
+          <when expression="#[VarValue.startsWith('\'${') &amp;&amp; VarValue.endsWith('}\'')]">
+            <logger doc:name="Log the payload" level="INFO"  message="checked value #[VarValue]"/>
+            <set-variable variableName="VarValue" value="#[VarValue.substring('\'${'.length(), VarValue.length() - '}\''.length())]" doc:name="Variable"/>
+            <logger doc:name="Log the payload" level="INFO" message="checked value #[VarValue]. #[VarValue] is special value."/>
           </when>
           <otherwise>
-            <set-variable variableName="VarUpdateColumns" value="#[VarUpdateColumns], #[payload.getKey()]='#[payload.getValue()]'" doc:name="Variable"/>
+            <logger doc:name="Log the payload" level="INFO" message="checked value #[VarValue]."/>
+          </otherwise>
+        </choice>
+        
+        <choice doc:name="Choice">
+          <when expression="#[counter == 1]">
+            <set-variable variableName="VarUpdateColumns" value="#[payload.getKey()]=#[VarValue]" doc:name="Variable"/>
+          </when>
+          <otherwise>
+            <set-variable variableName="VarUpdateColumns" value="#[VarUpdateColumns], #[payload.getKey()]=#[VarValue]" doc:name="Variable"/>
           </otherwise>
         </choice>
       </foreach>
